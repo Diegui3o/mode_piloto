@@ -3,26 +3,26 @@
 #include "I2Cdev.h"
 #include "MPU6050.h"
 #include <ESP32Servo.h>
-#include <VL53L0X.h>
+#include <pilote_mode.h>
 #include "variables.h"
 #include "mpu.h"
-#include "pilote_mode.h"
 
-// === MATRIZ LQR PRECALCULADA (4x12) ===
-// tau_x, tau_y, tau_z, thrust
-float Klqr_att[4][12] = {
-    // phi, theta, psi, p, q, r, int_phi, int_theta, phi_ref, theta_ref, psi_ref, 1
-    {3.2, 0.0, 0.0, 1.8, 0.0, 0.0, 0.5, 0.0, -4.5, 0.0, 0.0, 0.0}, // tau_x
-    {0.0, 3.0, 0.0, 0.0, 1.5, 0.0, 0.0, 0.4, 0.0, -4.2, 0.0, 0.0}, // tau_y
-    {0},                                                           // tau_z (no usado aún)
-    {0}                                                            // thrust (no usado aún)
-};
+// === Configuración del sistema ===
+const uint16_t LOOP_FREQ = 100;               // Frecuencia del loop en Hz
+const float DT = 1.0f / LOOP_FREQ;            // Paso de tiempo
+const uint32_t LOOP_US = 1000000 / LOOP_FREQ; // Microsegundos por ciclo
+const int IDLE_PWM = 1000;
 
-// === VARIABLES DE CONTROL ===
-extern float phi_ref, theta_ref, psi_ref;
-extern float integral_phi, integral_theta;
-float prev_error_phi = 0.0;
-float prev_error_theta = 0.0;
+// === Matrices LQR ===
+const float Ki_at[3][3] = {
+    {17.3205, 0, 0},
+    {0, 17.3205, 0},
+    {0, 0, 3.873}};
+
+const float Kc_at[3][6] = {
+    {4.8651, 0, 0, 0.6804, 0, 0},
+    {0, 4.8651, 0, 0, 0.6804, 0},
+    {0, 0, 3.1383, 0, 0, 1.2069}};
 
 // === SETUP INICIAL ===
 void setup_pilote_mode()
@@ -33,64 +33,73 @@ void setup_pilote_mode()
   pinMode(pinLed, OUTPUT);
   accelgyro.initialize();
   calibrateSensors();
-  setupMotores_pilote();
+  setupMotores();
   Serial.println("Setup completado.");
 }
 
 // === LOOP CON CONTROL LQR ===
 void loop_pilote_mode()
 {
-  // Calcular errores
+  // === Calcular errores actuales ===
   float error_phi = phi_ref - AngleRoll;
   float error_theta = theta_ref - AnglePitch;
+  float error_psi = psi_ref - AngleYaw;
 
-  // Actualizar términos integrales
-  integral_phi = constrain(integral_phi + error_phi * 0.01, -50, 50);
-  integral_theta = constrain(integral_theta + error_theta * 0.01, -50, 50);
+  // Actualizar términos integrales con anti-windup
+  integral_phi = constrain(integral_phi + error_phi * DT, -50, 50);
+  integral_theta = constrain(integral_theta + error_theta * DT, -50, 50);
+  integral_psi = constrain(integral_psi + error_psi * DT, -50, 50);
 
-  // Vector de estado x[12]
-  float x[12] = {
-      AngleRoll, AnglePitch, AngleYaw,
-      RateRoll, RatePitch, RateYaw,
-      integral_phi, integral_theta,
-      phi_ref, theta_ref, psi_ref,
-      1.0f // bias
-  };
+  // Estado del sistema
+  float x_c[6] = {AngleRoll, AnglePitch, AngleYaw, gyroRateRoll, gyroRatePitch, RateYaw};
+  float x_i[3] = {integral_phi, integral_theta, integral_psi};
 
-  // Aplicar LQR: u = -K * x
-  float u[4] = {0};
+  // Calcular señales de control u = -Kc*x_c - Ki*x_i
+  float tau_x = 0, tau_y = 0, tau_z = 0;
 
-  for (int i = 0; i < 4; i++)
+  for (int j = 0; j < 6; j++)
   {
-    for (int j = 0; j < 12; j++)
-    {
-      u[i] -= Klqr_att[i][j] * x[j];
-    }
+    tau_x -= Kc_at[0][j] * x_c[j];
+    tau_y -= Kc_at[1][j] * x_c[j];
+    tau_z -= Kc_at[2][j] * x_c[j];
   }
 
-  float tau_x = u[0];
-  float tau_y = u[1];
+  tau_x -= Ki_at[0][0] * x_i[0];
+  tau_y -= Ki_at[1][1] * x_i[1];
+  tau_z -= Ki_at[2][2] * x_i[2];
 
-  applyControl(tau_x, tau_y);
+  // Aplicar a los motores
+  applyControl(tau_x, tau_y, tau_z);
+
+  // Log (opcional)
+  static uint32_t last_log = 0;
+  if (millis() - last_log > 100)
+  {
+    last_log = millis();
+    Serial.printf("Angles: %.2f, %.2f, %.2f | Control: %.2f, %.2f, %.2f\n",
+                  AngleRoll, AnglePitch, AngleYaw, tau_x, tau_y, tau_z);
+  }
 }
 
 // === CONTROL A LOS MOTORES ===
-void applyControl(float tau_x, float tau_y)
+void applyControl(float tau_x, float tau_y, float tau_z)
 {
-  int pwm1 = 1500 - tau_x - tau_y;
-  int pwm2 = 1500 - tau_x + tau_y;
-  int pwm3 = 1500 + tau_x + tau_y;
-  int pwm4 = 1500 + tau_x - tau_y;
+  float pwm1 = 1500 - tau_x - tau_y - tau_z;
+  float pwm2 = 1500 - tau_x + tau_y + tau_z;
+  float pwm3 = 1500 + tau_x + tau_y - tau_z;
+  float pwm4 = 1500 + tau_x - tau_y + tau_z;
 
-  pwm1 = constrain(pwm1, 1200, 1800);
-  pwm2 = constrain(pwm2, 1200, 1800);
-  pwm3 = constrain(pwm3, 1200, 1800);
-  pwm4 = constrain(pwm4, 1200, 1800);
+  // Limitar valores PWM
+  pwm1 = constrain(pwm1, 1000, 2000);
+  pwm2 = constrain(pwm2, 1000, 2000);
+  pwm3 = constrain(pwm3, 1000, 2000);
+  pwm4 = constrain(pwm4, 1000, 2000);
 
-  mot1.writeMicroseconds(pwm1);
-  mot2.writeMicroseconds(pwm2);
-  mot3.writeMicroseconds(pwm3);
-  mot4.writeMicroseconds(pwm4);
+  // Enviar señales
+  mot1.writeMicroseconds(round(pwm1));
+  mot2.writeMicroseconds(round(pwm2));
+  mot3.writeMicroseconds(round(pwm3));
+  mot4.writeMicroseconds(round(pwm4));
 }
 
 // === CALIBRACIÓN DEL MPU6050 ===
@@ -206,17 +215,28 @@ void calibration()
 }
 
 // === INICIALIZAR MOTORES ===
-void setupMotores_pilote()
+void setupMotores()
 {
-  mot1.attach(mot1_pin);
-  mot2.attach(mot2_pin);
-  mot3.attach(mot3_pin);
-  mot4.attach(mot4_pin);
+  ESP32PWM::allocateTimer(0);
+  ESP32PWM::allocateTimer(1);
+  ESP32PWM::allocateTimer(2);
+  ESP32PWM::allocateTimer(3);
 
-  Serial.println("Iniciando ESCs...");
-  mot1.writeMicroseconds(1000);
-  mot2.writeMicroseconds(1000);
-  mot3.writeMicroseconds(1000);
-  mot4.writeMicroseconds(1000);
+  mot1.setPeriodHertz(400); // Frecuencia PWM para ESCs
+  mot2.setPeriodHertz(400);
+  mot3.setPeriodHertz(400);
+  mot4.setPeriodHertz(400);
+
+  mot1.attach(mot1_pin, 1000, 2000);
+  mot2.attach(mot2_pin, 1000, 2000);
+  mot3.attach(mot3_pin, 1000, 2000);
+  mot4.attach(mot4_pin, 1000, 2000);
+
+  // Inicializar ESCs
+  mot1.writeMicroseconds(IDLE_PWM);
+  mot2.writeMicroseconds(IDLE_PWM);
+  mot3.writeMicroseconds(IDLE_PWM);
+  mot4.writeMicroseconds(IDLE_PWM);
   delay(2000);
+  Serial.println("Motores inicializados");
 }

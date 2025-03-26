@@ -130,6 +130,9 @@ void gyro_signals(void)
   GyroYdps = GyroY / 131.0;
   GyroZdps = GyroZ / 131.0;
 
+  accAngleX = (atan(AccY / sqrt(pow(AccX, 2) + pow(AccZ, 2))) * 180 / PI) - 0.58;
+  accAngleY = (atan(-1 * AccX / sqrt(pow(AccY, 2) + pow(AccZ, 2))) * 180 / PI) + 1.58;
+
   if (AccZ != 0)
   {
     accAngleRoll = atan2(AccY, AccZ) * 57.29;                              // Ángulo de roll (grados)

@@ -143,3 +143,5 @@ float accAngleRoll;  // Ángulo de roll (grados)
 float accAnglePitch; // Ángulo de pitch (grados)
 float gyroRateRoll;  // Tasa de giro en grados/segundo
 float gyroRatePitch;
+float accAngleY;
+float accAngleX;

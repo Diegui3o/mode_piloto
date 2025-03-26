@@ -4,8 +4,8 @@
 void setup_pilote_mode();
 void loop_pilote_mode();
 void calibrateSensors();
-void setupMotores_pilote();
-void applyControl(float tau_x, float tau_y); // Actualizar la declaración
+void setupMotores();
+void applyControl(float tau_x, float tau_y, float tau_z);
 void meansensors();
 void calibration();
 

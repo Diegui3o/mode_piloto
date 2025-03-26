@@ -152,4 +152,7 @@ extern float accAnglePitch; // Ángulo de pitch (grados)
 extern float gyroRateRoll;  // Tasa de giro en grados/segundo
 extern float gyroRatePitch;
 
+extern float accAngleY;
+extern float accAngleX;
+
 #endif // VARIABLES_H
