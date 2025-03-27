@@ -59,9 +59,9 @@ void loop_pilote_mode()
 
   for (int j = 0; j < 6; j++)
   {
-    tau_x -= Kc_at[0][j] * x_c[j];
-    tau_y -= Kc_at[1][j] * x_c[j];
-    tau_z -= Kc_at[2][j] * x_c[j];
+    tau_x = Ki_at[0][0] * integral_phi + Kc_at[0][0] * error_phi + Kc_at[0][3] * RateRoll;
+    tau_y = Ki_at[1][1] * integral_theta + Kc_at[1][1] * error_theta + Kc_at[1][4] * RatePitch;
+    tau_z = Ki_at[2][2] * integral_psi + Kc_at[2][2] * error_psi + Kc_at[2][5] * RateYaw;
   }
 
   tau_x -= Ki_at[0][0] * x_i[0];
@@ -70,15 +70,6 @@ void loop_pilote_mode()
 
   // Aplicar a los motores
   applyControl(tau_x, tau_y, tau_z);
-
-  // Log (opcional)
-  static uint32_t last_log = 0;
-  if (millis() - last_log > 100)
-  {
-    last_log = millis();
-    Serial.printf("Angles: %.2f, %.2f, %.2f | Control: %.2f, %.2f, %.2f\n",
-                  AngleRoll, AnglePitch, AngleYaw, tau_x, tau_y, tau_z);
-  }
 }
 
 // === CONTROL A LOS MOTORES ===
@@ -90,16 +81,16 @@ void applyControl(float tau_x, float tau_y, float tau_z)
   float pwm4 = 1500 + tau_x - tau_y + tau_z;
 
   // Limitar valores PWM
-  pwm1 = constrain(pwm1, 1000, 2000);
-  pwm2 = constrain(pwm2, 1000, 2000);
-  pwm3 = constrain(pwm3, 1000, 2000);
-  pwm4 = constrain(pwm4, 1000, 2000);
+  MotorInput1 = constrain(pwm1, 1000, 2000);
+  MotorInput2 = constrain(pwm2, 1000, 2000);
+  MotorInput3 = constrain(pwm3, 1000, 2000);
+  MotorInput4 = constrain(pwm4, 1000, 2000);
 
   // Enviar señales
-  mot1.writeMicroseconds(round(pwm1));
-  mot2.writeMicroseconds(round(pwm2));
-  mot3.writeMicroseconds(round(pwm3));
-  mot4.writeMicroseconds(round(pwm4));
+  mot1.writeMicroseconds(round(MotorInput1));
+  mot2.writeMicroseconds(round(MotorInput2));
+  mot3.writeMicroseconds(round(MotorInput3));
+  mot4.writeMicroseconds(round(MotorInput4));
 }
 
 // === CALIBRACIÓN DEL MPU6050 ===

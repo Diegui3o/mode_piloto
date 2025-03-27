@@ -9,21 +9,6 @@ float AccXCalibration = 0.0, AccYCalibration = 0.0, AccZCalibration = 0.0;
 int pinLed = 2;
 
 int ESCfreq = 500;
-float PAngleRoll = 1.2, PAnglePitch = 1.2;
-float IAngleRoll = 0.1, IAnglePitch = 0.1;
-float DAngleRoll = 0.04, DAnglePitch = 0.04;
-
-float PRateRoll = 0.625;
-float IRateRoll = 2.1;
-float DRateRoll = 0.0088;
-
-float PRatePitch = 0.625;
-float IRatePitch = 2.1;
-float DRatePitch = 0.0088;
-
-float PRateYaw = 4.0;
-float IRateYaw = 3.0;
-float DRateYaw = 0.0;
 
 volatile float AngleRoll_est;
 volatile float AnglePitch_est;
@@ -74,30 +59,8 @@ const int channel_4_pin = 33;
 const int channel_5_pin = 25;
 const int channel_6_pin = 26;
 
-volatile float PtermRoll;
-volatile float ItermRoll;
-volatile float DtermRoll;
-volatile float PIDOutputRoll;
-volatile float PtermPitch;
-volatile float ItermPitch;
-volatile float DtermPitch;
-volatile float PIDOutputPitch;
-volatile float PtermYaw;
-volatile float ItermYaw;
-volatile float DtermYaw;
-volatile float PIDOutputYaw;
-volatile float KalmanGainPitch;
-volatile float KalmanGainRoll;
-
 int ThrottleIdle = 1050;
 int ThrottleCutOff = 1000;
-
-volatile float DesiredRateRoll, DesiredRatePitch, DesiredRateYaw;
-volatile float ErrorRateRoll, ErrorRatePitch, ErrorRateYaw;
-volatile float InputRoll, InputThrottle, InputPitch, InputYaw;
-volatile float PrevErrorRateRoll, PrevErrorRatePitch, PrevErrorRateYaw;
-volatile float PrevItermRateRoll, PrevItermRatePitch, PrevItermRateYaw;
-volatile float PIDReturn[3] = {0, 0, 0};
 
 // Kalman filters for angle mode
 volatile float AccX, AccY, AccZ;

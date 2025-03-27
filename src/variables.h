@@ -11,21 +11,6 @@ extern float RateCalibrationPitch, RateCalibrationRoll, RateCalibrationYaw, AccX
 extern int pinLed;
 
 extern int ESCfreq;
-extern float PAngleRoll, PAnglePitch;
-extern float IAngleRoll, IAnglePitch;
-extern float DAngleRoll, DAnglePitch;
-
-extern float PRateRoll;
-extern float IRateRoll;
-extern float DRateRoll;
-
-extern float PRatePitch;
-extern float IRatePitch;
-extern float DRatePitch;
-
-extern float PRateYaw;
-extern float IRateYaw;
-extern float DRateYaw;
 
 extern uint32_t LoopTimer;
 extern float t;
@@ -84,28 +69,8 @@ extern const int channel_4_pin;
 extern const int channel_5_pin;
 extern const int channel_6_pin;
 
-extern volatile float PtermRoll;
-extern volatile float ItermRoll;
-extern volatile float DtermRoll;
-extern volatile float PIDOutputRoll;
-extern volatile float PtermPitch;
-extern volatile float ItermPitch;
-extern volatile float DtermPitch;
-extern volatile float PIDOutputPitch;
-extern volatile float PtermYaw;
-extern volatile float ItermYaw;
-extern volatile float DtermYaw;
-extern volatile float PIDOutputYaw;
-
 extern int ThrottleIdle;
 extern int ThrottleCutOff;
-
-extern volatile float DesiredRateRoll, DesiredRatePitch, DesiredRateYaw;
-extern volatile float ErrorRateRoll, ErrorRatePitch, ErrorRateYaw;
-extern volatile float InputRoll, InputThrottle, InputPitch, InputYaw;
-extern volatile float PrevErrorRateRoll, PrevErrorRatePitch, PrevErrorRateYaw;
-extern volatile float PrevItermRateRoll, PrevItermRatePitch, PrevItermRateYaw;
-extern volatile float PIDReturn[3];
 
 // Kalman filters for angle mode
 extern volatile float AccX, AccY, AccZ;
