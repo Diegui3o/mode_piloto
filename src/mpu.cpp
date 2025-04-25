@@ -108,6 +108,7 @@ void setupMPU()
   Wire.setClock(400000);        // Set I2C clock speed to 400kHz
   accelgyro.initialize();
   delay(20);
+  // calibrateSensors(); // Calibrate the sensors
   if (!accelgyro.testConnection())
   {
     Serial.println("Error: No se pudo conectar con el MPU6050.");
