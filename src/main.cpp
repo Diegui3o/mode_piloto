@@ -4,7 +4,7 @@
 #include "MPU6050.h"
 #include "variables.h"
 #include "mpu.h"
-#include "pilote_mode.h"
+#include "piloto_mode.h"
 #include <ESP32Servo.h>
 #include <VL53L0X.h>
 
@@ -13,11 +13,12 @@ void setup()
   Serial.begin(115200);
   Wire.begin();
   setupMPU();
-  setup_pilote_mode();
 }
 
 void loop()
 {
+  loopMPU();
   gyro_signals();
-  loop_pilote_mode();
+  Serial.println(x_roll[0]);
+  Serial.println(x_pitch[0]);
 }

@@ -2,103 +2,54 @@
 #include <Wire.h>
 #include <ESP32Servo.h>
 #include "I2Cdev.h"
-#include <VL53L0X.h>
 #include "variables.h"
 #include "mpu.h"
+#include "piloto_mode.h"
+#include <VL53L0X.h>
 
+// Pines I2C para cada sensor
 #define SDA_MPU 21
 #define SCL_MPU 22
 #define SDA_TOF 4
 #define SCL_TOF 5
 
-// Declare and initialize Q and R
-float Q[2][2] = {{0.001, 0}, {0, 0.003}}; // Process noise covariance matrix
-float R = 0.03;                           // Measurement noise covariance
-
 // Función para el filtro de Kalman (roll)
-void kalmanUpdateRoll(float accAngleRoll, float RateRoll, float dt)
+double Kalman_filter(Kalman &kf, float newAngle, float newRate, float dt)
 {
-  // State transition matrix
-  float F[2][2] = {{1, -dt}, {0, 1}};
-  float G[2] = {dt, 0};
-  float H[2] = {1, 0};
+  // Predicción:
+  double rate = newRate - kf.bias;
+  kf.angle += dt * rate;
 
-  // State prediction
-  float x_pred[2];
-  x_pred[0] = F[0][0] * x_roll[0] + F[0][1] * x_roll[1] + G[0] * RateRoll;
-  x_pred[1] = F[1][0] * x_roll[0] + F[1][1] * x_roll[1] + G[1] * RateRoll;
+  // Actualización de la matriz de error
+  kf.P[0][0] += dt * (dt * kf.P[1][1] - kf.P[0][1] - kf.P[1][0] + Q_angle);
+  kf.P[0][1] -= dt * kf.P[1][1];
+  kf.P[1][0] -= dt * kf.P[1][1];
+  kf.P[1][1] += Q_bias * dt;
 
-  // Error covariance prediction
-  float P_pred[2][2];
-  P_pred[0][0] = F[0][0] * P_roll[0][0] + F[0][1] * P_roll[1][0];
-  P_pred[0][1] = F[0][0] * P_roll[0][1] + F[0][1] * P_roll[1][1];
-  P_pred[1][0] = F[1][0] * P_roll[0][0] + F[1][1] * P_roll[1][0];
-  P_pred[1][1] = F[1][0] * P_roll[0][1] + F[1][1] * P_roll[1][1];
+  // Medición:
+  float S = kf.P[0][0] + R_measure;
+  float K0 = kf.P[0][0] / S;
+  float K1 = kf.P[1][0] / S;
 
-  // Add process noise
-  P_pred[0][0] += Q[0][0];
-  P_pred[1][1] += Q[1][1];
+  // Actualización con la medición (newAngle)
+  float y = newAngle - kf.angle;
+  kf.angle += K0 * y;
+  kf.bias += K1 * y;
 
-  // Kalman gain
-  float S = H[0] * P_pred[0][0] * H[0] + R;
-  float K[2];
-  K[0] = P_pred[0][0] * H[0] / S;
-  K[1] = P_pred[1][0] * H[0] / S;
+  // Actualizar la matriz de covarianza
+  double P00_temp = kf.P[0][0];
+  double P01_temp = kf.P[0][1];
 
-  // Measurement residual
-  float d_roll = accAngleRoll - (H[0] * x_pred[0]);
+  kf.P[0][0] -= K0 * P00_temp;
+  kf.P[0][1] -= K0 * P01_temp;
+  kf.P[1][0] -= K1 * P00_temp;
+  kf.P[1][1] -= K1 * P01_temp;
 
-  // State update
-  x_roll[0] = x_pred[0] + K[0] * d_roll;
-  x_roll[1] = x_pred[1] + K[1] * d_roll;
-
-  // Error covariance update
-  P_roll[0][0] = (1 - K[0] * H[0]) * P_pred[0][0];
-  P_roll[0][1] = (1 - K[0] * H[0]) * P_pred[0][1];
-  P_roll[1][0] = -K[1] * H[0] * P_pred[0][0] + P_pred[1][0];
-  P_roll[1][1] = -K[1] * H[0] * P_pred[0][1] + P_pred[1][1];
-
-  // Forgetting factor adaptation
-  C = (C * 0.99) + (0.01 * d_roll * d_roll);
-  lambda = 1.0; // Simplified for now, implement your rule here
-
-  // Update error covariance with forgetting factor
-  P_roll[0][0] = (C + lambda * d_roll * d_roll) / C * P_roll[0][0];
-  P_roll[1][1] = (C + lambda * d_roll * d_roll) / C * P_roll[1][1];
-}
-
-// Función para el filtro de Kalman (pitch)
-void kalmanUpdatePitch(float accAnglePitch, float gyroRatePitch)
-{
-  // Predicción del estado
-  x_pitch[0] += dt * (gyroRatePitch - x_pitch[1]); // Actualiza el ángulo
-  x_pitch[1] = x_pitch[1];                         // El bias del giroscopio no cambia
-
-  // Predicción de la covarianza del error
-  P_pitch[0][0] += dt * (P_pitch[1][1] * dt - P_pitch[0][1] - P_pitch[1][0] + Q_angle);
-  P_pitch[0][1] -= dt * P_pitch[1][1];
-  P_pitch[1][0] -= dt * P_pitch[1][1];
-  P_pitch[1][1] += Q_gyro * dt;
-
-  // Ganancia de Kalman
-  float S = P_pitch[0][0] + R_angle;
-  float K[2];
-  K[0] = P_pitch[0][0] / S;
-  K[1] = P_pitch[1][0] / S;
-
-  float y = accAnglePitch - x_pitch[0];
-  x_pitch[0] += K[0] * y;
-  x_pitch[1] += K[1] * y;
-
-  P_pitch[0][0] -= K[0] * P_pitch[0][0];
-  P_pitch[0][1] -= K[0] * P_pitch[0][1];
-  P_pitch[1][0] -= K[1] * P_pitch[0][0];
-  P_pitch[1][1] -= K[1] * P_pitch[0][1];
+  return kf.angle;
 }
 
 void gyro_signals(void)
 {
-  // Leer los valores de los sensores
   Wire.beginTransmission(0x68);
   Wire.write(0x1A);
   Wire.write(0x05);
@@ -111,9 +62,9 @@ void gyro_signals(void)
   Wire.write(0x3B);
   Wire.endTransmission();
   Wire.requestFrom(0x68, 6);
-  int16_t AccX = Wire.read() << 8 | Wire.read();
-  int16_t AccY = Wire.read() << 8 | Wire.read();
-  int16_t AccZ = Wire.read() << 8 | Wire.read();
+  int16_t AccXLSB = Wire.read() << 8 | Wire.read();
+  int16_t AccYLSB = Wire.read() << 8 | Wire.read();
+  int16_t AccZLSB = Wire.read() << 8 | Wire.read();
   Wire.beginTransmission(0x68);
   Wire.write(0x1B);
   Wire.write(0x8);
@@ -126,63 +77,44 @@ void gyro_signals(void)
   int16_t GyroY = Wire.read() << 8 | Wire.read();
   int16_t GyroZ = Wire.read() << 8 | Wire.read();
 
-  GyroXdps = GyroX / 131.0;
-  GyroYdps = GyroY / 131.0;
-  GyroZdps = GyroZ / 131.0;
+  gyroRateRoll = (float)GyroX / 131.0;
+  gyroRatePitch = (float)GyroY / 131.0;
+  RateYaw = (float)GyroZ / 131.0;
 
-  accAngleX = (atan(AccY / sqrt(pow(AccX, 2) + pow(AccZ, 2))) * 180 / PI) - 0.58;
-  accAngleY = (atan(-1 * AccX / sqrt(pow(AccY, 2) + pow(AccZ, 2))) * 180 / PI) + 1.58;
+  AccX = (float)AccXLSB / 16384;
+  AccY = (float)AccYLSB / 16384;
+  AccZ = (float)AccZLSB / 16384;
 
-  if (AccZ != 0)
-  {
-    accAngleRoll = atan2(AccY, AccZ) * 57.29;                              // Ángulo de roll (grados)
-    accAnglePitch = atan2(-AccX, sqrt(AccY * AccY + AccZ * AccZ)) * 57.29; // Ángulo de pitch (grados)
-  }
-  else
-  {
-    Serial.println("Error: AccZ es cero");
-  }
+  AngleRoll_est = atan(AccY / sqrt(AccX * AccX + AccZ * AccZ)) * 1 / (3.142 / 180);
+  AnglePitch_est = -atan(AccX / sqrt(AccY * AccY + AccZ * AccZ)) * 1 / (3.142 / 180);
 
-  gyroRateRoll = GyroX / 65.5; // Tasa de giro en grados/segundo
-  gyroRatePitch = GyroY / 65.5;
-  RateYaw = GyroZ / 65.5;
+  // Cálculo del ángulo estimado a partir del acelerómetro (usando atan2 puede ser más robusto)
+  accAngleRoll = atan2(AccY, sqrt(AccX * AccX + AccZ * AccZ)) * 180.0 / PI;
+  accAnglePitch = -atan2(AccX, sqrt(AccY * AccY + AccZ * AccZ)) * 180.0 / PI;
 
-  // Aplicar el filtro de Kalman
-  kalmanUpdateRoll(accAngleRoll, gyroRateRoll, 0.01);
-  kalmanUpdatePitch(accAnglePitch, gyroRatePitch);
+  // Utiliza las tasas del giroscopio
+  float gyroRateRoll_local = gyroRateRoll;
+  float gyroRatePitch_local = gyroRatePitch;
 
-  AngleRoll = x_roll[0];
-  AnglePitch = x_pitch[0];
+  // Actualización del filtro de Kalman para cada eje
+  AngleRoll = Kalman_filter(kalmanRoll, accAngleRoll, gyroRateRoll_local, dt);
+  AnglePitch = Kalman_filter(kalmanPitch, accAnglePitch, gyroRatePitch_local, dt);
 }
 
 void setupMPU()
 {
-  Serial.begin(115200);
   Serial.println("Iniciando sensores...");
-
-  // Inicializar el bus I2C para MPU6050 (pines 21 y 22)
-  Wire.begin(SDA_MPU, SCL_MPU);
-  Wire.setClock(400000);
-
-  // Inicializar MPU6050
-  Serial.println("Inicializando MPU6050...");
-  delay(250);
-  Wire.beginTransmission(0x68);
-  delay(250);
-  Wire.write(0x6B);
-  Wire.write(0x00);
-  pinMode(13, OUTPUT);
-  digitalWrite(13, HIGH);
-  delay(250);
-  Wire.endTransmission();
-}
-
-void loopMPU()
-{
-
-  Serial.print("Roll Angle=");
-  Serial.print(AngleRoll);
-  Serial.print("Pitch Angle=");
-  Serial.println(AnglePitch);
-  delay(50);
+  Wire.begin(SDA_MPU, SCL_MPU); // Ensure correct I2C pins are used
+  Wire.setClock(400000);        // Set I2C clock speed to 400kHz
+  accelgyro.initialize();
+  delay(20);
+  if (!accelgyro.testConnection())
+  {
+    Serial.println("Error: No se pudo conectar con el MPU6050.");
+    while (true)
+    {
+      delay(1000); // Halt execution if the sensor is not connected
+    }
+  }
+  Serial.println("MPU6050 conectado correctamente.");
 }

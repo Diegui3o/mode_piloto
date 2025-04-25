@@ -1,6 +1,10 @@
 #include <MPU6050.h> // Asegura que el compilador conoce la clase MPU6050
 #include "variables.h"
 
+// Define global variables
+float vel_z = 0.0;
+float error_z = 0.0;
+
 MPU6050 accelgyro;
 
 volatile float RatePitch = 0.0, RateRoll = 0.0, RateYaw = 0.0;
@@ -31,7 +35,7 @@ Servo mot2;
 Servo mot3;
 Servo mot4;
 
-const int mot1_pin = 13;
+const int mot1_pin = 15;
 const int mot2_pin = 12;
 const int mot3_pin = 14;
 const int mot4_pin = 27;
@@ -59,13 +63,15 @@ const int channel_4_pin = 33;
 const int channel_5_pin = 25;
 const int channel_6_pin = 26;
 
-int ThrottleIdle = 1050;
+int ThrottleIdle = 1170;
 int ThrottleCutOff = 1000;
 
 // Kalman filters for angle mode
 volatile float AccX, AccY, AccZ;
-volatile float AngleRoll, AnglePitch, AngleYaw;
+volatile float AngleRoll = 0, AnglePitch = 0, AngleYaw = 0;
 volatile float GyroXdps, GyroYdps, GyroZdps;
+volatile float DesiredRateRoll, DesiredRatePitch, DesiredRateYaw;
+volatile float InputRoll, InputThrottle, InputPitch, InputYaw;
 volatile float DesiredAngleRoll, DesiredAnglePitch;
 volatile float ErrorAngleRoll, ErrorAnglePitch;
 volatile float PrevErrorAngleRoll, PrevErrorAnglePitch;
@@ -77,34 +83,53 @@ float complementaryAnglePitch = 0.0f;
 volatile float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
 
 // Variables de estado
-float phi_ref = 0.0;
-float theta_ref = 0.0;
-float psi_ref = 0.0;
-float integral_phi = 0.0;
-float integral_theta = 0.0;
-float integral_psi = 0.0;
-
-// Estado estimado: [ángulo, sesgo]
-float dt = 0.05;       // Paso de tiempo (ajustar según la frecuencia de muestreo)
-float Q_angle = 0.001; // Covarianza del ruido del proceso (ángulo)
-float Q_gyro = 0.003;  // Covarianza del ruido del proceso (giroscopio)
-float R_angle = 0.03;  // Covarianza del ruido de medición (acelerómetro)
-
-// Estado y matrices de covarianza para roll
-volatile float x_roll[2] = {0, 0};     // [ángulo, bias_del_giroscopio]
-float P_roll[2][2] = {{1, 0}, {0, 1}}; // Matriz de covarianza del error
-
-// Estado y matrices de covarianza para pitch
-volatile float x_pitch[2] = {0, 0};     // [ángulo, bias_del_giroscopio]
-float P_pitch[2][2] = {{1, 0}, {0, 1}}; // Matriz de covarianza del error
-
-// Variables para el FFAKF
-float lambda = 1.0; // Forgetting factor
-float C = 0.0;      // Measurement residual covariance
+volatile float phi_ref = 0.0;
+volatile float theta_ref = 0.0;
+volatile float psi_ref = 0.0;
+volatile float integral_phi;
+volatile float integral_theta;
+volatile float integral_psi;
 
 float accAngleRoll;  // Ángulo de roll (grados)
 float accAnglePitch; // Ángulo de pitch (grados)
-float gyroRateRoll;  // Tasa de giro en grados/segundo
+float gyroRateRoll;
 float gyroRatePitch;
 float accAngleY;
 float accAngleX;
+
+float residual_history_roll[window_size] = {0};
+float residual_history_pitch[window_size] = {0};
+int residual_index_roll, residual_index_pitch;
+float R_angle_roll, R_angle_pitch;
+float lambda_roll, lambda_pitch;
+
+// === Configuración del sistema ===
+const uint16_t LOOP_FREQ = 100;               // Frecuencia del loop en Hz
+const float DT = 1.0f / LOOP_FREQ;            // Paso de tiempo
+const uint32_t LOOP_US = 1000000 / LOOP_FREQ; // Microsegundos por ciclo
+const int IDLE_PWM = 1000;
+float lambda = 0.96;
+float residual_history[window_size] = {0};
+int residual_index = 0;
+float c_threshold = 0.01;
+
+float dt = 0.01;        // Paso de tiempo (ajustar según la frecuencia de muestreo)
+float Q_angle = 0.001f; // Covarianza del ruido del proceso (ángulo)
+float Q_gyro = 0.003;   // Covarianza del ruido del proceso (giroscopio)
+float R_angle = 0.03;   // Covarianza del ruido de medición (acelerómetro)
+
+// --- CALIBRATION OFFSETS ---
+double accelOffsetX = 0, accelOffsetY = 0, accelOffsetZ = 0;
+double gyroXOffset = 0, gyroYOffset = 0, gyroZOffset = 0;
+
+// --- FILTER VARIABLES ---
+double pitch = 0, roll = 0;
+double Q_bias = 0.003f;
+double R_measure = 0.03f;
+double angle = 0.0f, bias = 0.0f, rate = 0;
+double P[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
+
+Kalman kalmanRoll = {0, 0, {1, 0, 0, 1}};
+Kalman kalmanPitch = {0, 0, {1, 0, 0, 1}};
+
+unsigned long lastTime;
