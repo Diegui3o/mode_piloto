@@ -33,14 +33,14 @@ const float Kc_alt[2] = {28.8910, 10.5624};
 // === SETUP INICIAL ===
 void setup_pilote_mode()
 {
-  pinMode(pinLed, OUTPUT);
-  digitalWrite(pinLed, HIGH);
-  delay(50);
-  Serial.begin(115200);
-  Serial.println("Iniciando modo pilote...");
-  setupMotores();
-  Serial.println("Setup completado.");
-  digitalWrite(pinLed, LOW);
+    pinMode(pinLed, OUTPUT);
+    digitalWrite(pinLed, HIGH);
+    delay(50);
+    Serial.begin(115200);
+    Serial.println("Iniciando modo pilote...");
+    setupMotores();
+    Serial.println("Setup completado.");
+    digitalWrite(pinLed, LOW);
 }
 
 // === LOOP CON CONTROL LQR ===
@@ -52,8 +52,8 @@ void loop_pilote_mode()
 
     // Control LQR
     tau_x = Ki_at[0][0] * x_i[0] + Kc_at[0][0] * error_phi - Kc_at[0][3] * x_c[3];
-    tau_y = Ki_at[1][1] * x_i[1] + Kc_at[1][1] * error_theta - Kc_at[1][4] * x_c[4];
-    tau_z = Ki_at[2][2] * x_i[2] + Kc_at[2][2] * error_psi - Kc_at[2][5] * x_c[5];
+    tau_y = Ki_at[1][1] * x_i[1] + Kc_at[1][1] * error_theta + Kc_at[1][4] * x_c[4];
+    tau_z = Ki_at[2][2] * x_i[2] + Kc_at[2][2] * error_psi + Kc_at[2][5] * x_c[5];
 
     error_phi = phi_ref - x_c[0];
     error_theta = theta_ref - x_c[1];
@@ -64,7 +64,7 @@ void loop_pilote_mode()
     tau_y -= Ki_at[1][1] * x_i[1];
     tau_z -= Ki_at[2][2] * x_i[2];
 
-    InputThrottle = 1000;
+    InputThrottle = 1500; // Empuje total calculado por el controlador de altitud
 
     applyControl(tau_x, tau_y, tau_z);
 }
