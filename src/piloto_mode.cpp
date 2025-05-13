@@ -17,14 +17,14 @@ bool mpu_ready = false;
 
 // === Matrices LQR ===
 const float Ki_at[3][3] = {
-    {15.1623, 0, 0},
-    {0, 15.1623, 0},
-    {0, 0, 1.87}};
+    {5.00, 0, 0},
+    {0, 5.00, 0},
+    {0, 0, 2.162}};
 
 const float Kc_at[3][6] = {
-    {7.3882, 0, 0, 3.2, 0, 0},
-    {0, 7.4022, 0, 0, 3.2, 0},
-    {0, 0, 1.97864, 0, 0, 0.00}};
+    {5.98, 0, 0, 3.57, 0, 0},
+    {0, 5.99, 0, 0, 3.58, 0},
+    {0, 0, 3.97864, 0, 0, 1.00}};
 
 // === Matrices LQR para altitud ===
 const float Ki_alt = 31.6228;
@@ -52,19 +52,19 @@ void loop_pilote_mode()
 
     // Control LQR
     tau_x = Ki_at[0][0] * x_i[0] + Kc_at[0][0] * error_phi - Kc_at[0][3] * x_c[3];
-    tau_y = Ki_at[1][1] * x_i[1] + Kc_at[1][1] * error_theta + Kc_at[1][4] * x_c[4];
-    tau_z = Ki_at[2][2] * x_i[2] + Kc_at[2][2] * error_psi + Kc_at[2][5] * x_c[5];
+    tau_y = Ki_at[1][1] * x_i[1] + Kc_at[1][1] * error_theta - Kc_at[1][4] * x_c[4];
+    tau_z = Ki_at[2][2] * x_i[2] + Kc_at[2][2] * error_psi - Kc_at[2][5] * x_c[5];
 
     error_phi = phi_ref - x_c[0];
     error_theta = theta_ref - x_c[1];
     error_psi = psi_ref - 0;
 
     // Actualizar integrales
-    tau_x -= Ki_at[0][0] * x_i[0];
-    tau_y -= Ki_at[1][1] * x_i[1];
-    tau_z -= Ki_at[2][2] * x_i[2];
+    x_i[0] += error_phi * dt;
+    x_i[1] += error_theta * dt;
+    x_i[2] += error_psi * dt;
 
-    InputThrottle = 1500; // Empuje total calculado por el controlador de altitud
+    InputThrottle = 1750; // Empuje total calculado por el controlador de altitud
 
     applyControl(tau_x, tau_y, tau_z);
 }
