@@ -7,5 +7,9 @@ void mpu_signals();
 void setupMPU();
 void loop_yaw();
 void gyro_signals();
+void calibrateSensors();
+void meansensors();
+void calibration();
+void initializeQuaternions();
 
 #endif

@@ -9,174 +9,88 @@
 #include "mpu.h"
 #include "motores.h"
 
-// Define T as a global variable
-float T = 0.0;
-
 // Variable to track MPU calibration status
 bool mpu_ready = false;
 
+// === Función de saturación para modo deslizante ===
+float sat(float value, float threshold)
+{
+    if (value > threshold)
+        return 1.0;
+    else if (value < -threshold)
+        return -1.0;
+    else
+        return value / threshold;
+}
+
 // === Matrices LQR ===
 const float Ki_at[3][3] = {
-    {5.00, 0, 0},
-    {0, 5.00, 0},
-    {0, 0, 2.162}};
+    {17, 0, 0},
+    {0, 17, 0},
+    {0, 0, 0.1}};
 
 const float Kc_at[3][6] = {
-    {5.98, 0, 0, 3.57, 0, 0},
-    {0, 5.99, 0, 0, 3.58, 0},
-    {0, 0, 3.97864, 0, 0, 1.00}};
-
-// === Matrices LQR para altitud ===
-const float Ki_alt = 31.6228;
-const float Kc_alt[2] = {28.8910, 10.5624};
+    {5.2, 0, 0, 2.5, 0, 0},
+    {0, 5.2, 0, 0, 2.5, 0},
+    {0, 0, 5.3, 0, 0, 1.6}};
 
 // === SETUP INICIAL ===
 void setup_pilote_mode()
 {
     pinMode(pinLed, OUTPUT);
-    digitalWrite(pinLed, HIGH);
-    delay(50);
     Serial.begin(115200);
     Serial.println("Iniciando modo pilote...");
-    setupMotores();
+    InputThrottle = 1000;
+    delay(100);
     Serial.println("Setup completado.");
-    digitalWrite(pinLed, LOW);
 }
 
-// === LOOP CON CONTROL LQR ===
-void loop_pilote_mode()
+void loop_pilote_mode(float dt)
 {
-    // Estado del sistema
-    float x_c[6] = {AngleRoll, AnglePitch, AngleYaw, gyroRateRoll, gyroRatePitch, RateYaw};
-    float x_i[3] = {integral_phi, integral_theta, integral_psi};
-
-    // Control LQR
-    tau_x = Ki_at[0][0] * x_i[0] + Kc_at[0][0] * error_phi - Kc_at[0][3] * x_c[3];
-    tau_y = Ki_at[1][1] * x_i[1] + Kc_at[1][1] * error_theta - Kc_at[1][4] * x_c[4];
-    tau_z = Ki_at[2][2] * x_i[2] + Kc_at[2][2] * error_psi - Kc_at[2][5] * x_c[5];
-
-    error_phi = phi_ref - x_c[0];
-    error_theta = theta_ref - x_c[1];
-    error_psi = psi_ref - 0;
-
-    // Actualizar integrales
-    x_i[0] += error_phi * dt;
-    x_i[1] += error_theta * dt;
-    x_i[2] += error_psi * dt;
-
-    InputThrottle = 1750; // Empuje total calculado por el controlador de altitud
-
-    applyControl(tau_x, tau_y, tau_z);
-}
-
-// === CALIBRACIÓN DEL MPU6050 ===
-void calibrateSensors()
-{
-    Serial.println("\nCalibrando sensores...");
-    digitalWrite(pinLed, HIGH);
-
-    accelgyro.setXAccelOffset(0);
-    accelgyro.setYAccelOffset(0);
-    accelgyro.setZAccelOffset(0);
-    accelgyro.setXGyroOffset(0);
-    accelgyro.setYGyroOffset(0);
-    accelgyro.setZGyroOffset(0);
-
-    meansensors();
-    Serial.println("\nCalculando offsets...");
-    calibration();
-
-    accelgyro.setXAccelOffset(ax_offset);
-    accelgyro.setYAccelOffset(ay_offset);
-    accelgyro.setZAccelOffset(az_offset);
-    accelgyro.setXGyroOffset(gx_offset);
-    accelgyro.setYGyroOffset(gy_offset);
-    accelgyro.setZGyroOffset(gz_offset);
-
-    Serial.println("Calibración completada.");
-    digitalWrite(pinLed, LOW);
-}
-
-void meansensors()
-{
-    long i = 0, buff_ax = 0, buff_ay = 0, buff_az = 0, buff_gx = 0, buff_gy = 0, buff_gz = 0;
-    while (i < (buffersize + 101))
+    // Inicializar throttle solo una vez al principio
+    static bool throttle_initialized = false;
+    if (!throttle_initialized)
     {
-        accelgyro.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-        if (i > 100 && i <= (buffersize + 100))
-        {
-            buff_ax += ax;
-            buff_ay += ay;
-            buff_az += az;
-            buff_gx += gx;
-            buff_gy += gy;
-            buff_gz += gz;
-        }
-        i++;
-        delay(2);
+        InputThrottle = 1000; // Empezar en 1000
+        throttle_initialized = true;
     }
 
-    mean_ax = buff_ax / buffersize;
-    mean_ay = buff_ay / buffersize;
-    mean_az = buff_az / buffersize;
-    mean_gx = buff_gx / buffersize;
-    mean_gy = buff_gy / buffersize;
-    mean_gz = buff_gz / buffersize;
-}
+    // 2. SEGUNDO: Estado del sistema
+    float x_c[6] = {AngleRoll, AnglePitch, AngleYaw, gyroRateRoll, gyroRatePitch, RateYaw};
 
-void calibration()
-{
-    ax_offset = -mean_ax / 8;
-    ay_offset = -mean_ay / 8;
-    az_offset = (16384 - mean_az) / 8;
+    // 3. TERCERO: Calcular errores
+    error_phi = phi_ref - x_c[0];
+    error_theta = theta_ref - x_c[1];
+    error_psi = psi_ref - x_c[2];
 
-    gx_offset = -mean_gx / 4;
-    gy_offset = -mean_gy / 4;
-    gz_offset = -mean_gz / 4;
+    // 4. CUARTO: Actualizar integrales con saturación específica por eje
+    integral_phi += error_phi * dt;
+    integral_theta += error_theta * dt;
+    integral_psi += error_psi * dt;
 
-    while (1)
+    // 5. QUINTO: Control LQR usando las integrales actualizadas
+    tau_x = Ki_at[0][0] * integral_phi + Kc_at[0][0] * error_phi - Kc_at[0][3] * x_c[3] - N * x_c[4] * x_c[5];
+    tau_y = Ki_at[1][1] * integral_theta + Kc_at[1][1] * error_theta - Kc_at[1][4] * x_c[4] - N * x_c[3] * x_c[5];
+    tau_z = Ki_at[2][2] * integral_psi + Kc_at[2][2] * error_psi - Kc_at[2][5] * x_c[5] - N * x_c[4] * x_c[3];
+
+    // Incrementar throttle gradualmente de 1000 a 1850
+    if (InputThrottle < 1850)
     {
-        int ready = 0;
-        accelgyro.setXAccelOffset(ax_offset);
-        accelgyro.setYAccelOffset(ay_offset);
-        accelgyro.setZAccelOffset(az_offset);
-        accelgyro.setXGyroOffset(gx_offset);
-        accelgyro.setYGyroOffset(gy_offset);
-        accelgyro.setZGyroOffset(gz_offset);
-
-        meansensors();
-
-        if (abs(mean_ax) <= acel_deadzone)
-            ready++;
-        else
-            ax_offset -= mean_ax / acel_deadzone;
-
-        if (abs(mean_ay) <= acel_deadzone)
-            ready++;
-        else
-            ay_offset -= mean_ay / acel_deadzone;
-
-        if (abs(16384 - mean_az) <= acel_deadzone)
-            ready++;
-        else
-            az_offset += (16384 - mean_az) / acel_deadzone;
-
-        if (abs(mean_gx) <= giro_deadzone)
-            ready++;
-        else
-            gx_offset -= mean_gx / (giro_deadzone + 1);
-
-        if (abs(mean_gy) <= giro_deadzone)
-            ready++;
-        else
-            gy_offset -= mean_gy / (giro_deadzone + 1);
-
-        if (abs(mean_gz) <= giro_deadzone)
-            ready++;
-        else
-            gz_offset -= mean_gz / (giro_deadzone + 1);
-
-        if (ready == 6)
-            break;
+        InputThrottle += 3.0; // Incremento de 3 unidades por ciclo
+        if (InputThrottle > 1850)
+        {
+            InputThrottle = 1850; // Limitar a máximo 1850
+        }
+    } // Aplicar control cuando el throttle esté por encima del mínimo de seguridad
+    if (InputThrottle > 1020)
+    {
+        applyControl(tau_x, tau_y, tau_z);
+    }
+    else
+    {
+        applyControl(0, 0, 0);
+        apagarMotores();
+        // Resetear integrales cuando el throttle está bajo
+        integral_phi = integral_theta = integral_psi = 0;
     }
 }

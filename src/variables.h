@@ -31,10 +31,24 @@ extern const int mot2_pin;
 extern const int mot3_pin;
 extern const int mot4_pin;
 
-// Variables de estado
-extern volatile float phi_ref, theta_ref, psi_ref; // Ángulos de referencia
+// Variables de estado - OPTIMIZADO: quitado volatile innecesario
+extern volatile float phi_ref, theta_ref, psi_ref; // Solo referencias locales - OPTIMIZADO
 
-extern volatile float integral_phi, integral_theta, integral_psi;
+extern volatile float integral_phi, integral_theta, integral_psi; // Solo integrales locales - OPTIMIZADO
+
+// === Variables para control avanzado ===
+// Modo deslizante
+extern float S_phi, S_theta; // Superficies deslizantes
+extern float lambda_sliding; // Parámetro de deslizamiento
+extern float N;              // Variable N para control
+
+// Feedforward
+extern float ff_phi, ff_theta, ff_psi;     // Términos feedforward
+extern float prev_phi_ref, prev_theta_ref; // Referencias anteriores para derivada
+
+// Variables adicionales para MPU
+extern float yaw_t;
+extern float AngleYaw_ca;
 
 // Variables para la calibración
 extern int buffersize;    // Cantidad de lecturas para promediar
@@ -75,12 +89,13 @@ extern int ThrottleIdle;
 extern int ThrottleCutOff;
 
 // Kalman filters for angle mode
-extern volatile float AccX, AccY, AccZ;
-extern volatile float AngleRoll, AnglePitch, AngleYaw;
-extern volatile float GyroXdps, GyroYdps, GyroZdps;
+extern volatile float AccX, AccY, AccZ;                // Mantener volatile - compartido entre tareas
+extern volatile float AngleRoll, AnglePitch, AngleYaw; // Mantener volatile - compartido entre tareas
+extern volatile float GyroXdps, GyroYdps, GyroZdps;    // OPTIMIZADO: solo uso local
+// OPTIMIZADO: quitado volatile innecesario para mejor rendimiento
 extern volatile float DesiredRateRoll, DesiredRatePitch, DesiredRateYaw;
 extern volatile float InputRoll, InputThrottle, InputPitch, InputYaw;
-extern volatile float DesiredAngleRoll, DesiredAnglePitch;
+extern volatile float DesiredAngleRoll, DesiredAnglePitch, DesiredAngleYaw;
 extern volatile float ErrorAngleRoll, ErrorAnglePitch;
 extern volatile float PrevErrorAngleRoll, PrevErrorAnglePitch;
 extern volatile float PrevItermAngleRoll, PrevItermAnglePitch;
@@ -88,7 +103,7 @@ extern volatile float PrevItermAngleRoll, PrevItermAnglePitch;
 extern float complementaryAngleRoll;
 extern float complementaryAnglePitch;
 
-extern volatile float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
+extern volatile float MotorInput1, MotorInput2, MotorInput3, MotorInput4; // Solo salida de control
 
 // Matriz de covarianza del error
 extern float dt; // Paso de tiempo (ajustar según la frecuencia de muestreo, variable)
@@ -157,6 +172,7 @@ struct Kalman
 
 extern Kalman kalmanRoll;
 extern Kalman kalmanPitch;
+extern Kalman kalmanYaw;
 
 // Estados
 extern float z;          // Altitud medida [m]
@@ -170,5 +186,14 @@ extern float T; // Empuje total deseado
 // Declare global variables
 extern float vel_z;
 extern float error_z;
+
+extern float magbias[3];
+extern float magscale[3];
+
+// Quaternion variables for orientation
+extern float q0, q1, q2, q3;
+
+// Euler angles in radians (converted from quaternions)
+extern float yaw;
 
 #endif // VARIABLES_H

@@ -71,21 +71,21 @@ const int channel_6_pin = 26;
 int ThrottleIdle = 1170;
 int ThrottleCutOff = 1000;
 
-// Kalman filters for angle mode
-volatile float AccX, AccY, AccZ;
-volatile float AngleRoll = 0, AnglePitch = 0, AngleYaw = 0;
-volatile float GyroXdps, GyroYdps, GyroZdps;
+// Kalman filters for angle mode - OPTIMIZADO: quitado volatile innecesario
+volatile float AccX, AccY, AccZ;                            // Mantener volatile - compartido entre tareas
+volatile float AngleRoll = 0, AnglePitch = 0, AngleYaw = 0; // Mantener volatile - compartido entre tareas
+volatile float GyroXdps, GyroYdps, GyroZdps;                // OPTIMIZADO: solo uso local
 volatile float DesiredRateRoll, DesiredRatePitch, DesiredRateYaw;
 volatile float InputRoll, InputThrottle, InputPitch, InputYaw;
-volatile float DesiredAngleRoll, DesiredAnglePitch;
-volatile float ErrorAngleRoll, ErrorAnglePitch;
-volatile float PrevErrorAngleRoll, PrevErrorAnglePitch;
-volatile float PrevItermAngleRoll, PrevItermAnglePitch;
+volatile float DesiredAngleRoll, DesiredAnglePitch, DesiredAngleYaw;
+volatile float ErrorAngleRoll, ErrorAnglePitch;         // OPTIMIZADO: solo cálculos locales
+volatile float PrevErrorAngleRoll, PrevErrorAnglePitch; // OPTIMIZADO: solo cálculos locales
+volatile float PrevItermAngleRoll, PrevItermAnglePitch; // OPTIMIZADO: solo cálculos locales
 
 float complementaryAngleRoll = 0.0f;
 float complementaryAnglePitch = 0.0f;
 
-volatile float MotorInput1, MotorInput2, MotorInput3, MotorInput4;
+volatile float MotorInput1, MotorInput2, MotorInput3, MotorInput4; // OPTIMIZADO: solo salida de control
 
 // Variables de estado
 volatile float phi_ref = 0.0;
@@ -94,6 +94,15 @@ volatile float psi_ref = 0.0;
 volatile float integral_phi;
 volatile float integral_theta;
 volatile float integral_psi;
+
+// === Variables para control avanzado ===
+// Modo deslizante
+float S_phi = 0, S_theta = 0; // Superficies deslizantes
+float lambda_sliding = 0.5;   // Parámetro de deslizamiento
+
+// Feedforward
+float ff_phi = 0, ff_theta = 0, ff_psi = 0; // Términos feedforward
+float prev_phi_ref = 0, prev_theta_ref = 0; // Referencias anteriores para derivada
 
 float accAngleRoll;  // Ángulo de roll (grados)
 float accAnglePitch; // Ángulo de pitch (grados)
@@ -118,7 +127,7 @@ float residual_history[window_size] = {0};
 int residual_index = 0;
 float c_threshold = 0.01;
 
-float dt = 0.003;       // Paso de tiempo (ajustar según la frecuencia de muestreo)
+float dt = 0.009;       // Paso de tiempo (ajustar según la frecuencia de muestreo)
 float Q_angle = 0.001f; // Covarianza del ruido del proceso (ángulo)
 float Q_gyro = 0.003;   // Covarianza del ruido del proceso (giroscopio)
 float R_angle = 0.03;   // Covarianza del ruido de medición (acelerómetro)
@@ -136,5 +145,31 @@ double P[2][2] = {{0.0, 0.0}, {0.0, 0.0}};
 
 Kalman kalmanRoll = {0, 0, {1, 0, 0, 1}};
 Kalman kalmanPitch = {0, 0, {1, 0, 0, 1}};
+Kalman kalmanYaw = {0, 0, {1, 0, 0, 1}};
 
 unsigned long lastTime;
+
+// Variables adicionales para MPU
+float yaw_t = 0.0;
+float AngleYaw_ca = 0.0;
+
+float magbias[3] = {0, 0, 0};
+float magscale[3] = {1, 1, 1};
+
+// Quaternion variables for orientation
+float q0 = 1.0, q1 = 0.0, q2 = 0.0, q3 = 0.0;
+
+// Euler angles in radians (converted from quaternions)
+float yaw = 0.0;
+
+// Estados
+float z = 0.0;          // Altitud medida [m]
+float dz = 0.0;         // Velocidad vertical medida [m/s]
+float z_ref = 0.0;      // Altitud deseada [m]
+float integral_z = 0.0; // Integral del error de altitud
+
+// Control
+float T = 0.0; // Empuje total deseado
+
+float t = 0.0;
+float N = 0.01;
